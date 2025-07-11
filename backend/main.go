@@ -8,6 +8,9 @@ import (
 )
 
 func main() {
+	// 加载配置
+	config.LoadConfig()
+
 	// 初始化数据库
 	db, err := config.InitDB()
 	if err != nil {
@@ -21,6 +24,6 @@ func main() {
 	r := routes.SetupRouter(db)
 
 	// 启动服务器
-	log.Println("服务器启动在 http://localhost:8080")
-	r.Run(":8080")
+	log.Printf("服务器启动在 http://localhost:%s", config.AppConfig.Port)
+	r.Run(":" + config.AppConfig.Port)
 }

@@ -1,10 +1,12 @@
 package routes
 
 import (
+	"net/http"
+	"timeline/backend/controllers"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"timeline/backend/controllers"
 )
 
 // SetupRouter 设置路由
@@ -28,12 +30,26 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 		// 日记相关路由
 		diaries := api.Group("/diaries")
 		{
-			diaries.GET("", diaryController.GetAllDiaries)       // 获取所有日记
+			diaries.GET("", diaryController.GetAllDiaries)         // 获取所有日记
 			diaries.GET("/date", diaryController.GetDiariesByDate) // 获取指定日期的日记
-			diaries.POST("", diaryController.CreateDiary)        // 创建新日记
-			diaries.DELETE("/:id", diaryController.DeleteDiary)  // 删除日记
+			diaries.POST("", diaryController.CreateDiary)          // 创建新日记
+			diaries.DELETE("/:id", diaryController.DeleteDiary)    // 删除日记
 		}
 	}
+
+	// 静态文件服务
+	r.StaticFS("/web", http.Dir("./dist"))
+
+	// 根路径处理 - 使用StaticFile而不是StaticFS
+	r.StaticFile("/", "./dist/index.html")
+	r.Static("/assets", "./dist/assets")
+	r.Static("/css", "./dist/css")
+	r.Static("/js", "./dist/js")
+
+	// 前端路由处理
+	r.NoRoute(func(c *gin.Context) {
+		c.File("./dist/index.html")
+	})
 
 	return r
 }

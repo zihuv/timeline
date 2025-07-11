@@ -154,7 +154,10 @@ const editContent = ref('')
 // 在script部分添加以下代码，替换原有的本地存储逻辑
 
 // API基础URL
-const API_BASE_URL = 'http://localhost:8080/api';
+// 将API_BASE_URL从
+// const API_BASE_URL = 'http://localhost:8080/api';
+// 修改为
+const API_BASE_URL = '/api';
 
 // 加载指定日期的日记
 async function loadDiariesByDate(date) {

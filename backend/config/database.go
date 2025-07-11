@@ -8,8 +8,8 @@ import (
 
 // InitDB 初始化数据库连接
 func InitDB() (*gorm.DB, error) {
-	// 使用SQLite作为数据库
-	db, err := gorm.Open(sqlite.Open("diary.db"), &gorm.Config{
+	// 使用配置中的SQLite数据库路径
+	db, err := gorm.Open(sqlite.Open(AppConfig.DBPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 
