@@ -34,6 +34,7 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 			diaries.GET("/date", diaryController.GetDiariesByDate) // 获取指定日期的日记
 			diaries.POST("", diaryController.CreateDiary)          // 创建新日记
 			diaries.DELETE("/:id", diaryController.DeleteDiary)    // 删除日记
+			diaries.PUT("/:id", diaryController.UpdateDiary)       // 更新日记
 		}
 	}
 

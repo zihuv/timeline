@@ -1,11 +1,12 @@
 package controllers
 
 import (
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"net/http"
 	"time"
 	"timeline/backend/models"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // DiaryController 处理日记相关的请求
@@ -44,7 +45,7 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 			URL  string `json:"url"`
 			Name string `json:"name"`
 		} `json:"images"`
-		Date      string `json:"date"` // 可选，默认为当前日期
+		Date      string `json:"date"`      // 可选，默认为当前日期
 		Timestamp string `json:"timestamp"` // 可选，默认为当前时间
 	}
 
@@ -117,4 +118,47 @@ func (dc *DiaryController) DeleteDiary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "日记已删除"})
+}
+
+// UpdateDiary 更新日记内容和图片（不允许修改时间）
+func (dc *DiaryController) UpdateDiary(c *gin.Context) {
+	id := c.Param("id")
+	var input struct {
+		Content string `json:"content"`
+		Images  []struct {
+			URL  string `json:"url"`
+			Name string `json:"name"`
+		} `json:"images"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var entry models.DiaryEntry
+	if err := dc.DB.Preload("Images").First(&entry, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "日记不存在"})
+		return
+	}
+
+	// 更新内容
+	entry.Content = input.Content
+
+	// 先删除原有图片
+	dc.DB.Where("diary_id = ?", entry.ID).Delete(&models.DiaryImage{})
+	entry.Images = make([]models.DiaryImage, 0)
+	for _, img := range input.Images {
+		entry.Images = append(entry.Images, models.DiaryImage{
+			URL:  img.URL,
+			Name: img.Name,
+		})
+	}
+
+	if err := dc.DB.Session(&gorm.Session{FullSaveAssociations: true}).Save(&entry).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新日记失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, entry)
 }

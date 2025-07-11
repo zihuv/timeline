@@ -28,8 +28,15 @@
           :type="getTimelineItemType(index)" 
           :hollow="index % 2 !== 0"
           placement="top"
+          @click="handleEdit(entry, index)"
         >
-          <div class="timeline-content">
+          <div class="timeline-content"
+            @mousedown="startPressTimer(entry, index, $event)"
+            @touchstart="startPressTimer(entry, index, $event)"
+            @mouseup="clearPressTimer()"
+            @mouseleave="clearPressTimer()"
+            @touchend="clearPressTimer()"
+          >
             <div class="diary-text">{{ entry.content }}</div>
 
             <!-- 图片展示区 -->
@@ -58,7 +65,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import DiaryEditor from "@/components/DiaryEditor.vue"
 
@@ -149,6 +156,7 @@ function getTimelineItemType(index) {
 // 编辑相关
 const showDialog = ref(false)
 const editContent = ref('')
+const editIndex = ref(null)
 
 // 日期变更处理
 // 在script部分添加以下代码，替换原有的本地存储逻辑
@@ -192,6 +200,24 @@ async function saveDiaryToServer(diary) {
     return null;
   }
 }
+// 新增：编辑日记到服务器
+async function updateDiaryToServer(id, data) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/diaries/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('更新日记失败');
+    return await response.json();
+  } catch (error) {
+    console.error('更新日记失败:', error);
+    ElMessage.error('更新日记失败');
+    return null;
+  }
+}
 
 // 修改handleDateChange函数
 const handleDateChange = async () => {
@@ -213,6 +239,28 @@ const handleDateChange = async () => {
 // 修改handleSave函数
 const handleSave = async (data) => {
   const dateStr = formatDate(selectedDate.value);
+  // 判断是否为编辑模式
+  if (editIndex.value !== null) {
+    // 编辑模式：只更新内容和图片，不改动时间
+    const dayIndex = allDiaries.value.findIndex(d => d.date === dateStr);
+    if (dayIndex >= 0) {
+      const entry = allDiaries.value[dayIndex].entries[editIndex.value];
+      const updateData = {
+        content: typeof data === 'string' ? data : data.content || '',
+        images: typeof data === 'object' && data.images ? data.images : []
+      };
+      // 调用后端PUT接口
+      const updated = await updateDiaryToServer(entry.id, updateData);
+      if (updated) {
+        entry.content = updated.content;
+        entry.images = updated.images;
+        ElMessage.success('修改成功！');
+      }
+    }
+    editIndex.value = null;
+    return;
+  }
+  // 新增模式：保存新的日记条目
   const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
   // 准备新的日记条目
@@ -260,6 +308,61 @@ function saveDiariesToStorage() {
 watch(allDiaries, () => {
   saveDiariesToStorage()
 }, { deep: true })
+
+function handleEdit(entry, index) {
+  editContent.value = {
+    content: entry.content,
+    images: entry.images || []
+  }
+  showDialog.value = true
+  editIndex.value = index
+}
+
+let pressTimer = null
+function startPressTimer(entry, index, event) {
+  if (pressTimer) clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => {
+    confirmDelete(entry, index)
+  }, 700) // 长按700ms
+}
+function clearPressTimer() {
+  if (pressTimer) {
+    clearTimeout(pressTimer)
+    pressTimer = null
+  }
+}
+async function confirmDelete(entry, index) {
+  clearPressTimer()
+  try {
+    await ElMessageBox.confirm('确定要删除这条日记吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await deleteDiary(entry.id)
+    // 本地移除
+    const dateStr = formatDate(selectedDate.value)
+    const dayIndex = allDiaries.value.findIndex(d => d.date === dateStr)
+    if (dayIndex >= 0) {
+      allDiaries.value[dayIndex].entries.splice(index, 1)
+    }
+    ElMessage.success('删除成功！')
+  } catch (e) {
+    // 用户取消
+  }
+}
+async function deleteDiary(id) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/diaries/${id}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) throw new Error('删除失败')
+    return true
+  } catch (error) {
+    ElMessage.error('删除失败')
+    return false
+  }
+}
 </script>
 
 <style scoped>

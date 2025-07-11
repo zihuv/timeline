@@ -62,7 +62,7 @@ import { Plus, Delete } from '@element-plus/icons-vue'
 
 const props = defineProps({
   dialogVisible: Boolean,  // 控制弹窗显示/隐藏（v-model）
-  content: String,        // 父组件传入的初始内容
+  content: [String, Object],        // 父组件传入的初始内容或对象
 })
 
 const emit = defineEmits(['update:dialogVisible', 'save'])
@@ -82,8 +82,17 @@ watch(() => props.dialogVisible, (newVal) => {
   visible.value = newVal
   // 每次打开对话框时重置内容
   if (newVal) {
-    localValue.value = props.content || ''
-    fileList.value = []
+    if (typeof props.content === 'object' && props.content) {
+      localValue.value = props.content.content || ''
+      fileList.value = (props.content.images || []).map(img => ({
+        url: img.url,
+        name: img.name,
+        uid: img.url || img.name || Math.random().toString(36).slice(2)
+      }))
+    } else {
+      localValue.value = props.content || ''
+      fileList.value = []
+    }
     // 自动聚焦输入框
     setTimeout(() => {
       document.querySelector('.editor-container textarea')?.focus()
@@ -98,7 +107,17 @@ watch(visible, (newVal) => {
 
 // 监听content变化，更新本地内容
 watch(() => props.content, (newVal) => {
-  localValue.value = newVal
+  if (typeof newVal === 'object' && newVal) {
+    localValue.value = newVal.content || ''
+    fileList.value = (newVal.images || []).map(img => ({
+      url: img.url,
+      name: img.name,
+      uid: img.url || img.name || Math.random().toString(36).slice(2)
+    }))
+  } else {
+    localValue.value = newVal || ''
+    fileList.value = []
+  }
 })
 
 // 处理文件变更

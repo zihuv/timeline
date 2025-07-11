@@ -8,7 +8,7 @@ SET SQLITE_DB_PATH=%~1
 IF "%SQLITE_DB_PATH%"=="" SET SQLITE_DB_PATH=C:/Users/10413/OneDrive/diary.db
 
 SET BUILD_DIR=build
-SET BACKEND_BINARY=backend.exe
+SET BACKEND_BINARY=timeline.exe
 SET FRONTEND_DIR=dist
 
 :: 清理旧构建
