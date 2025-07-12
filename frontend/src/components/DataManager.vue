@@ -109,6 +109,32 @@
         </div>
       </div>
 
+      <!-- 数据库状态 -->
+      <div class="section">
+        <h3>数据库状态</h3>
+        <p class="section-desc">IndexedDB 数据库状态和健康检查</p>
+        
+        <div class="db-status">
+          <div class="status-item">
+            <span class="status-label">存储类型：</span>
+            <span class="status-value">{{ storageType }}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">数据库状态：</span>
+            <span class="status-value" :class="dbHealth.status">{{ dbHealth.status === 'healthy' ? '正常' : '异常' }}</span>
+          </div>
+        </div>
+        
+        <el-button 
+          type="primary" 
+          @click="checkHealth" 
+          :loading="checkingHealth"
+        >
+          <el-icon><Refresh /></el-icon>
+          健康检查
+        </el-button>
+      </div>
+
       <!-- 数据统计 -->
       <div class="section">
         <h3>数据统计</h3>
@@ -131,6 +157,60 @@
           </div>
         </div>
       </div>
+
+      <!-- 数据清理 -->
+      <div class="section">
+        <h3>数据清理</h3>
+        <p class="section-desc">清理本地或服务器数据，请谨慎操作（此操作不可恢复）</p>
+        
+        <div class="cleanup-options">
+          <el-checkbox-group v-model="cleanupOptions">
+            <el-checkbox label="local" border>
+              <div class="cleanup-option">
+                <span>清理本地数据</span>
+                <span class="cleanup-desc">删除浏览器本地存储的所有日记数据</span>
+              </div>
+            </el-checkbox>
+            <el-checkbox label="server" border :disabled="!apiService.isServerMode()">
+              <div class="cleanup-option">
+                <span>清理服务器数据</span>
+                <span class="cleanup-desc">删除服务器上的所有日记数据</span>
+              </div>
+            </el-checkbox>
+            <el-checkbox label="all" border :disabled="!apiService.isServerMode()">
+              <div class="cleanup-option">
+                <span>清理所有数据</span>
+                <span class="cleanup-desc">同时清理本地和服务器数据</span>
+              </div>
+            </el-checkbox>
+            <el-checkbox label="complete" border>
+              <div class="cleanup-option">
+                <span>彻底清理（推荐）</span>
+                <span class="cleanup-desc">删除数据库并重新创建，确保完全清理</span>
+              </div>
+            </el-checkbox>
+          </el-checkbox-group>
+        </div>
+        
+        <div class="cleanup-actions">
+          <el-button 
+            type="danger" 
+            @click="showCleanupConfirm"
+            :loading="cleaning"
+            :disabled="cleanupOptions.length === 0"
+          >
+            <el-icon><Delete /></el-icon>
+            清理数据
+          </el-button>
+          
+          <el-button 
+            @click="clearCleanupOptions"
+            :disabled="cleanupOptions.length === 0"
+          >
+            清空选择
+          </el-button>
+        </div>
+      </div>
     </div>
 
     <template #footer>
@@ -144,8 +224,9 @@
 <script setup>
 import { ref, reactive, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, Upload } from '@element-plus/icons-vue'
+import { Download, Upload, Delete, Refresh } from '@element-plus/icons-vue'
 import apiService from '@/utils/api.js'
+import indexedDBService from '@/utils/indexeddb.js'
 import { generateId } from '@/utils/snowflake.js'
 
 const props = defineProps({
@@ -173,15 +254,26 @@ const importing = ref(false)
 const syncingToServer = ref(false)
 const syncingFromServer = ref(false)
 
+// 数据库状态相关
+const checkingHealth = ref(false)
+const storageType = ref('IndexedDB')
+const dbHealth = reactive({ status: 'unknown' })
+
 // 统计数据
 const localStats = reactive({ entries: 0, days: 0 })
 const serverStats = reactive({ entries: 0, days: 0 })
+
+// 清理选项
+const cleanupOptions = ref([])
+const cleaning = ref(false)
 
 // 监听modelValue变化
 watch(() => props.modelValue, (newVal) => {
   dialogVisible.value = newVal
   if (newVal) {
+    checkStorageStatus()
     loadStats()
+    checkHealth()
   }
 })
 
@@ -190,25 +282,47 @@ watch(dialogVisible, (newVal) => {
   emit('update:modelValue', newVal)
 })
 
+// 检查存储状态
+function checkStorageStatus() {
+  // 检查 IndexedDB 支持
+  if (window.indexedDB) {
+    storageType.value = 'IndexedDB'
+  } else {
+    storageType.value = '不支持 IndexedDB'
+  }
+}
+
 // 加载统计数据
 async function loadStats() {
-  // 本地统计
+  // 本地统计 - 使用 IndexedDB
   try {
-    const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
-    localStats.entries = localData.reduce((total, day) => total + day.entries.length, 0)
-    localStats.days = localData.length
+    const stats = await indexedDBService.getStats()
+    localStats.entries = stats.totalDiaries
+    localStats.days = stats.uniqueDates
   } catch (error) {
     console.error('加载本地统计失败:', error)
+    localStats.entries = 0
+    localStats.days = 0
   }
 
   // 服务器统计
   if (apiService.isServerMode()) {
     try {
       const serverData = await apiService.request('/diaries')
-      serverStats.entries = serverData.reduce((total, day) => total + day.entries.length, 0)
-      serverStats.days = serverData.length
+      // 确保 serverData 是数组
+      if (Array.isArray(serverData)) {
+        serverStats.entries = serverData.reduce((total, day) => total + (day.entries?.length || 0), 0)
+        serverStats.days = serverData.length
+      } else {
+        console.warn('服务器返回的数据格式不正确:', serverData)
+        serverStats.entries = 0
+        serverStats.days = 0
+      }
     } catch (error) {
       console.error('加载服务器统计失败:', error)
+      // 服务器不可用时，显示为0
+      serverStats.entries = 0
+      serverStats.days = 0
     }
   }
 }
@@ -221,14 +335,38 @@ async function exportData() {
     let data = []
     
     if (exportMode.value === 'local') {
-      // 导出本地数据
-      data = JSON.parse(localStorage.getItem('diaries') || '[]')
+      // 导出本地数据 - 使用 IndexedDB
+      const allDiaries = await indexedDBService.getAllDiaries()
+      // 转换为原来的格式
+      const dateGroups = {}
+      allDiaries.forEach(diary => {
+        if (!dateGroups[diary.date]) {
+          dateGroups[diary.date] = []
+        }
+        dateGroups[diary.date].push(diary)
+      })
+      data = Object.keys(dateGroups).map(date => ({
+        date,
+        entries: dateGroups[date]
+      }))
     } else if (exportMode.value === 'server' && apiService.isServerMode()) {
       // 导出服务器数据
       data = await apiService.request('/diaries')
     } else if (exportMode.value === 'all' && apiService.isServerMode()) {
       // 导出所有数据
-      const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
+      const allDiaries = await indexedDBService.getAllDiaries()
+      // 转换为原来的格式
+      const dateGroups = {}
+      allDiaries.forEach(diary => {
+        if (!dateGroups[diary.date]) {
+          dateGroups[diary.date] = []
+        }
+        dateGroups[diary.date].push(diary)
+      })
+      const localData = Object.keys(dateGroups).map(date => ({
+        date,
+        entries: dateGroups[date]
+      }))
       const serverData = await apiService.request('/diaries')
       
       // 合并数据，按ID去重
@@ -319,47 +457,47 @@ async function importData() {
     const importedData = importData.data
     
     if (importMode.value === 'overwrite') {
-      // 覆盖模式
-      localStorage.setItem('diaries', JSON.stringify(importedData))
-      ElMessage.success(`成功导入 ${importedData.length} 天的数据（覆盖模式）`)
+      // 覆盖模式 - 使用 IndexedDB
+      await indexedDBService.clearAll()
+      for (const dayDiary of importedData) {
+        for (const entry of dayDiary.entries) {
+          await indexedDBService.saveDiary(entry)
+        }
+      }
+      ElMessage.success(`成功导入 ${importedData.length} 天的数据到 IndexedDB（覆盖模式）`)
     } else {
       // 合并模式
-      const existingData = JSON.parse(localStorage.getItem('diaries') || '[]')
-      const mergedData = [...existingData]
-      
-      importedData.forEach(importedDay => {
-        const existingIndex = mergedData.findIndex(existingDay => existingDay.date === importedDay.date)
-        if (existingIndex >= 0) {
-          // 合并同一天的日记
-          const existingEntries = mergedData[existingIndex].entries
-          importedDay.entries.forEach(importedEntry => {
-            const existingEntryIndex = existingEntries.findIndex(
-              existingEntry => existingEntry.id === importedEntry.id
-            )
-            if (existingEntryIndex >= 0) {
-              // 相同ID，比较时间戳，保留最新的
-              const localEntry = existingEntries[existingEntryIndex]
-              const localTime = new Date(localEntry.updatedAt || localEntry.createdAt)
-              const importedTime = new Date(importedEntry.updatedAt || importedEntry.createdAt)
-              
-              if (importedTime > localTime) {
-                // 导入数据更新
-                existingEntries[existingEntryIndex] = importedEntry
-              }
-              // 如果本地数据更新，保持不变
-            } else {
-              // 添加新条目
-              existingEntries.push(importedEntry)
-            }
-          })
-        } else {
-          // 添加新的一天
-          mergedData.push(importedDay)
+      const existingData = await indexedDBService.getAllDiaries()
+      const existingDateGroups = {}
+      existingData.forEach(diary => {
+        if (!existingDateGroups[diary.date]) {
+          existingDateGroups[diary.date] = []
         }
+        existingDateGroups[diary.date].push(diary)
       })
       
-      localStorage.setItem('diaries', JSON.stringify(mergedData))
-      ElMessage.success(`成功导入 ${importedData.length} 天的数据（合并模式）`)
+      // 合并导入的数据
+      for (const dayDiary of importedData) {
+        for (const entry of dayDiary.entries) {
+          const existingEntries = existingDateGroups[entry.date] || []
+          const existingEntry = existingEntries.find(e => e.id === entry.id)
+          
+          if (existingEntry) {
+            // 相同ID，比较时间戳，保留最新的
+            const existingTime = new Date(existingEntry.updatedAt || existingEntry.createdAt)
+            const importedTime = new Date(entry.updatedAt || entry.createdAt)
+            
+            if (importedTime > existingTime) {
+              // 导入数据更新
+              await indexedDBService.updateDiary(entry.id, entry)
+            }
+          } else {
+            // 添加新条目
+            await indexedDBService.saveDiary(entry)
+          }
+        }
+      }
+      ElMessage.success(`成功导入 ${importedData.length} 天的数据到 IndexedDB（合并模式）`)
     }
     
     // 清空文件选择
@@ -401,13 +539,25 @@ async function syncToServer() {
     syncingToServer.value = true
     const results = await apiService.syncToServer()
     
-    const successCount = results.filter(r => r.success).length
-    const failCount = results.length - successCount
+    const successCount = results.filter(r => r.success && !r.skipped).length
+    const skipCount = results.filter(r => r.skipped).length
+    const failCount = results.filter(r => !r.success).length
+    
+    let message = ''
+    if (successCount > 0) {
+      message += `成功同步 ${successCount} 条日记`
+    }
+    if (skipCount > 0) {
+      message += message ? `，跳过 ${skipCount} 条已存在的日记` : `跳过 ${skipCount} 条已存在的日记`
+    }
+    if (failCount > 0) {
+      message += message ? `，${failCount} 条同步失败` : `${failCount} 条同步失败`
+    }
     
     if (failCount === 0) {
-      ElMessage.success(`成功同步 ${successCount} 条日记到服务器`)
+      ElMessage.success(message || '所有数据已是最新状态')
     } else {
-      ElMessage.warning(`同步完成：成功 ${successCount} 条，失败 ${failCount} 条`)
+      ElMessage.warning(message)
     }
     
     await loadStats()
@@ -460,10 +610,197 @@ async function syncFromServer() {
   }
 }
 
+// 显示清理确认对话框
+async function showCleanupConfirm() {
+  if (cleanupOptions.value.length === 0) {
+    ElMessage.warning('请选择要清理的数据')
+    return
+  }
+  
+  let message = '确定要清理以下数据吗？\n\n'
+  let details = []
+  
+  if (cleanupOptions.value.includes('local')) {
+    details.push(`• 本地数据：${localStats.entries} 条日记，${localStats.days} 天`)
+  }
+  
+  if (cleanupOptions.value.includes('server')) {
+    details.push(`• 服务器数据：${serverStats.entries} 条日记，${serverStats.days} 天`)
+  }
+  
+  if (cleanupOptions.value.includes('all')) {
+    details.push(`• 所有数据：${localStats.entries + serverStats.entries} 条日记，${localStats.days + serverStats.days} 天`)
+  }
+  
+  if (cleanupOptions.value.includes('complete')) {
+    details.push(`• 彻底清理：删除数据库并重新创建`)
+  }
+  
+  message += details.join('\n')
+  message += '\n\n⚠️ 此操作不可恢复！'
+  
+  try {
+    await ElMessageBox.confirm(
+      message,
+      '确认清理数据',
+      {
+        confirmButtonText: '确定清理',
+        cancelButtonText: '取消',
+        type: 'warning',
+        dangerouslyUseHTMLString: false,
+        customClass: 'cleanup-confirm-dialog'
+      }
+    )
+    
+    await performCleanup()
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清理确认失败:', error)
+      ElMessage.error('操作失败: ' + error.message)
+    }
+  }
+}
+
+// 执行清理操作
+async function performCleanup() {
+  cleaning.value = true
+  
+  try {
+    const results = []
+    
+    // 清理本地数据
+    if (cleanupOptions.value.includes('local') || cleanupOptions.value.includes('all')) {
+      try {
+        // 清理 IndexedDB
+        await indexedDBService.clearAll()
+        results.push('IndexedDB 数据已清理')
+        
+        // 清理 localStorage 残留数据
+        localStorage.removeItem('diaries')
+        console.log('localStorage 数据已清理')
+        
+        // 清理 sessionStorage
+        sessionStorage.removeItem('diaries')
+        console.log('sessionStorage 数据已清理')
+        
+        // 强制刷新页面缓存
+        if ('caches' in window) {
+          try {
+            const cacheNames = await caches.keys()
+            await Promise.all(
+              cacheNames.map(cacheName => caches.delete(cacheName))
+            )
+            console.log('浏览器缓存已清理')
+          } catch (cacheError) {
+            console.warn('清理缓存失败:', cacheError)
+          }
+        }
+      } catch (error) {
+        console.error('清理本地数据失败:', error)
+        results.push('本地数据清理失败: ' + error.message)
+      }
+    }
+    
+    // 彻底清理
+    if (cleanupOptions.value.includes('complete')) {
+      try {
+        await indexedDBService.clearAllCompletely()
+        results.push('数据库已彻底清理并重新创建')
+        
+        // 清理所有存储
+        localStorage.clear()
+        sessionStorage.clear()
+        console.log('所有存储已清理')
+        
+        // 清理缓存
+        if ('caches' in window) {
+          try {
+            const cacheNames = await caches.keys()
+            await Promise.all(
+              cacheNames.map(cacheName => caches.delete(cacheName))
+            )
+            console.log('所有缓存已清理')
+          } catch (cacheError) {
+            console.warn('清理缓存失败:', cacheError)
+          }
+        }
+      } catch (error) {
+        console.error('彻底清理失败:', error)
+        results.push('彻底清理失败: ' + error.message)
+      }
+    }
+    
+    // 清理服务器数据
+    if (cleanupOptions.value.includes('server') || cleanupOptions.value.includes('all')) {
+      if (apiService.isServerMode()) {
+        try {
+          await apiService.request('/diaries/clear', { method: 'DELETE' })
+          results.push('服务器数据已清理')
+        } catch (error) {
+          console.error('清理服务器数据失败:', error)
+          results.push('服务器数据清理失败: ' + error.message)
+        }
+      }
+    }
+    
+    // 显示结果
+    if (results.length > 0) {
+      ElMessage.success(results.join('，'))
+    }
+    
+    // 重新加载统计
+    await loadStats()
+    
+    // 清空清理选项
+    cleanupOptions.value = []
+    
+    // 通知数据变化
+    emit('data-changed')
+    
+    // 触发全局事件，通知其他组件数据已变化
+    window.dispatchEvent(new CustomEvent('diary-data-changed'))
+    
+  } catch (error) {
+    console.error('清理操作失败:', error)
+    ElMessage.error('清理失败: ' + error.message)
+  } finally {
+    cleaning.value = false
+  }
+}
+
+// 数据库健康检查
+async function checkHealth() {
+  checkingHealth.value = true
+  
+  try {
+    const health = await indexedDBService.healthCheck()
+    dbHealth.status = health.status
+    
+    if (health.status === 'healthy') {
+      ElMessage.success('数据库状态正常')
+    } else {
+      ElMessage.warning('数据库状态异常: ' + health.error)
+    }
+  } catch (error) {
+    console.error('健康检查失败:', error)
+    dbHealth.status = 'unhealthy'
+    ElMessage.error('健康检查失败: ' + error.message)
+  } finally {
+    checkingHealth.value = false
+  }
+}
+
+// 清空清理选项
+function clearCleanupOptions() {
+  cleanupOptions.value = []
+}
+
 // 关闭对话框
 function handleClose() {
   dialogVisible.value = false
   selectedFile.value = null
+  cleanupOptions.value = []
   if (uploadRef.value) {
     uploadRef.value.clearFiles()
   }
@@ -597,6 +934,60 @@ function handleClose() {
   justify-content: flex-end;
 }
 
+.cleanup-options {
+  margin-bottom: 1rem;
+}
+
+.cleanup-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.cleanup-desc {
+  font-size: 0.8rem;
+  color: #909399;
+  margin-top: 0.25rem;
+}
+
+.cleanup-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.db-status {
+  margin-bottom: 1rem;
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background-color: #f0f9ff;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.status-label {
+  color: #606266;
+  font-size: 0.9rem;
+}
+
+.status-value {
+  font-weight: 600;
+  color: #409eff;
+}
+
+.status-value.healthy {
+  color: #67c23a;
+}
+
+.status-value.unhealthy {
+  color: #f56c6c;
+}
+
 @media (max-width: 768px) {
   .sync-buttons {
     flex-direction: column;
@@ -604,6 +995,11 @@ function handleClose() {
   
   .stats {
     grid-template-columns: 1fr;
+  }
+  
+  .cleanup-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style> 

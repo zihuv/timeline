@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -97,10 +98,29 @@ func InitSnowflake(machineID int64) {
 }
 
 // GenerateID 生成全局唯一ID
-func GenerateID() int64 {
+func GenerateID() string {
 	if globalSnowflake == nil {
 		// 如果没有初始化，使用默认机器ID
 		InitSnowflake(1)
 	}
-	return globalSnowflake.NextID()
+
+	// 生成时间戳格式的ID: YYYYMMDDHHMMSSmmm + 序列号
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+	day := now.Day()
+	hour := now.Hour()
+	minute := now.Minute()
+	second := now.Second()
+	millisecond := now.Nanosecond() / 1000000 // 转换为毫秒
+
+	// 获取序列号（使用雪花ID的序列号部分）
+	snowflakeID := globalSnowflake.NextID()
+	sequence := snowflakeID & 0xFFF // 取最后12位作为序列号
+
+	// 格式: YYYYMMDDHHMMSSmmm + 序列号
+	id := fmt.Sprintf("%04d%02d%02d%02d%02d%02d%03d%03d",
+		year, month, day, hour, minute, second, millisecond, sequence)
+
+	return id
 }

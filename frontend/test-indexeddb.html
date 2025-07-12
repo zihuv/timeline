@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IndexedDB 功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stat-item {
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>IndexedDB 功能测试</h1>
+        
+        <div class="section">
+            <h3>数据库状态</h3>
+            <button onclick="checkStatus()">检查状态</button>
+            <button onclick="initDB()">初始化数据库</button>
+            <div id="statusResult" class="result"></div>
+        </div>
+
+        <div class="section">
+            <h3>数据操作</h3>
+            <button onclick="addTestData()">添加测试数据</button>
+            <button onclick="getAllData()">获取所有数据</button>
+            <button onclick="getDataByDate()">按日期获取数据</button>
+            <button onclick="updateData()">更新数据</button>
+            <button onclick="deleteData()">删除数据</button>
+            <button onclick="clearAll()">清空所有数据</button>
+            <div id="dataResult" class="result"></div>
+        </div>
+
+        <div class="section">
+            <h3>数据库管理</h3>
+            <button onclick="migrateFromLocalStorage()">健康检查</button>
+            <button onclick="exportData()">导出数据</button>
+            <button onclick="importData()">导入数据</button>
+            <div id="migrationResult" class="result"></div>
+        </div>
+
+        <div class="section">
+            <h3>统计信息</h3>
+            <button onclick="getStats()">获取统计</button>
+            <div id="statsResult" class="result"></div>
+            <div id="statsDisplay" class="stats"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import indexedDBService from './src/utils/indexeddb.js'
+        import { generateId } from './src/utils/snowflake.js'
+
+        // 全局变量
+        let testDataId = null
+
+        // 检查状态
+        window.checkStatus = async function() {
+            const result = document.getElementById('statusResult')
+            try {
+                const health = await indexedDBService.healthCheck()
+                result.className = 'result success'
+                result.textContent = `数据库连接成功\n数据库名称: TimelineDiaryDB\n状态: ${health.status}\n总日记数: ${health.totalDiaries}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `数据库连接失败: ${error.message}`
+            }
+        }
+
+        // 初始化数据库
+        window.initDB = async function() {
+            const result = document.getElementById('statusResult')
+            try {
+                const health = await indexedDBService.healthCheck()
+                result.className = 'result success'
+                result.textContent = '数据库初始化成功'
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `数据库初始化失败: ${error.message}`
+            }
+        }
+
+        // 添加测试数据
+        window.addTestData = async function() {
+            const result = document.getElementById('dataResult')
+            try {
+                const testDiary = {
+                    date: new Date().toISOString().split('T')[0],
+                    title: '测试日记',
+                    content: '这是一个测试日记内容',
+                    mood: 'happy',
+                    tags: ['测试', 'IndexedDB']
+                }
+                
+                const savedDiary = await indexedDBService.saveDiary(testDiary)
+                testDataId = savedDiary.id
+                
+                result.className = 'result success'
+                result.textContent = `测试数据添加成功\nID: ${savedDiary.id}\n创建时间: ${savedDiary.createdAt}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `添加测试数据失败: ${error.message}`
+            }
+        }
+
+        // 获取所有数据
+        window.getAllData = async function() {
+            const result = document.getElementById('dataResult')
+            try {
+                const allData = await indexedDBService.getAllDiaries()
+                result.className = 'result info'
+                result.textContent = `获取到 ${allData.length} 条数据:\n${JSON.stringify(allData, null, 2)}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `获取数据失败: ${error.message}`
+            }
+        }
+
+        // 按日期获取数据
+        window.getDataByDate = async function() {
+            const result = document.getElementById('dataResult')
+            try {
+                const date = new Date().toISOString().split('T')[0]
+                const data = await indexedDBService.getDiaries(date)
+                result.className = 'result info'
+                result.textContent = `获取 ${date} 的数据:\n${JSON.stringify(data, null, 2)}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `按日期获取数据失败: ${error.message}`
+            }
+        }
+
+        // 更新数据
+        window.updateData = async function() {
+            const result = document.getElementById('dataResult')
+            try {
+                if (!testDataId) {
+                    throw new Error('请先添加测试数据')
+                }
+                
+                const updateData = {
+                    title: '更新后的测试日记',
+                    content: '这是更新后的内容',
+                    mood: 'excited'
+                }
+                
+                const updatedDiary = await indexedDBService.updateDiary(testDataId, updateData)
+                
+                result.className = 'result success'
+                result.textContent = `数据更新成功:\n${JSON.stringify(updatedDiary, null, 2)}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `更新数据失败: ${error.message}`
+            }
+        }
+
+        // 删除数据
+        window.deleteData = async function() {
+            const result = document.getElementById('dataResult')
+            try {
+                if (!testDataId) {
+                    throw new Error('请先添加测试数据')
+                }
+                
+                await indexedDBService.deleteDiary(testDataId)
+                testDataId = null
+                
+                result.className = 'result success'
+                result.textContent = '数据删除成功'
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `删除数据失败: ${error.message}`
+            }
+        }
+
+        // 清空所有数据
+        window.clearAll = async function() {
+            const result = document.getElementById('dataResult')
+            try {
+                await indexedDBService.clearAll()
+                testDataId = null
+                
+                result.className = 'result success'
+                result.textContent = '所有数据已清空'
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `清空数据失败: ${error.message}`
+            }
+        }
+
+        // 数据库健康检查
+        window.migrateFromLocalStorage = async function() {
+            const result = document.getElementById('migrationResult')
+            try {
+                const health = await indexedDBService.healthCheck()
+                
+                if (health.status === 'healthy') {
+                    result.className = 'result success'
+                    result.textContent = `数据库状态正常\n总日记数: ${health.totalDiaries}\n不同日期数: ${health.uniqueDates}`
+                } else {
+                    result.className = 'result error'
+                    result.textContent = `数据库状态异常: ${health.error}`
+                }
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `健康检查失败: ${error.message}`
+            }
+        }
+
+        // 导出数据
+        window.exportData = async function() {
+            const result = document.getElementById('migrationResult')
+            try {
+                const jsonData = await indexedDBService.exportData()
+                
+                // 创建下载链接
+                const blob = new Blob([jsonData], { type: 'application/json' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `indexeddb-export-${new Date().toISOString().split('T')[0]}.json`
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                URL.revokeObjectURL(url)
+                
+                result.className = 'result success'
+                result.textContent = '数据导出成功，文件已下载'
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `导出失败: ${error.message}`
+            }
+        }
+
+        // 导入数据
+        window.importData = async function() {
+            const result = document.getElementById('migrationResult')
+            try {
+                // 创建文件输入
+                const input = document.createElement('input')
+                input.type = 'file'
+                input.accept = '.json'
+                
+                input.onchange = async function(e) {
+                    const file = e.target.files[0]
+                    if (!file) return
+                    
+                    try {
+                        const text = await file.text()
+                        const importResult = await indexedDBService.importData(text)
+                        
+                        if (importResult.success) {
+                            result.className = 'result success'
+                            result.textContent = `导入成功，共导入 ${importResult.imported} 条数据`
+                        } else {
+                            result.className = 'result error'
+                            result.textContent = `导入失败: ${importResult.error}`
+                        }
+                    } catch (error) {
+                        result.className = 'result error'
+                        result.textContent = `导入失败: ${error.message}`
+                    }
+                }
+                
+                input.click()
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `导入失败: ${error.message}`
+            }
+        }
+
+        // 获取统计信息
+        window.getStats = async function() {
+            const result = document.getElementById('dataResult')
+            const statsDisplay = document.getElementById('statsDisplay')
+            
+            try {
+                const stats = await indexedDBService.getStats()
+                
+                result.className = 'result info'
+                result.textContent = `统计信息:\n${JSON.stringify(stats, null, 2)}`
+                
+                // 显示统计卡片
+                statsDisplay.innerHTML = `
+                    <div class="stat-item">
+                        <div class="stat-value">${stats.totalDiaries}</div>
+                        <div class="stat-label">总日记数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${stats.uniqueDates}</div>
+                        <div class="stat-label">不同日期数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${Object.keys(stats.dateCounts).length}</div>
+                        <div class="stat-label">有数据的日期数</div>
+                    </div>
+                `
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `获取统计失败: ${error.message}`
+            }
+        }
+
+        // 页面加载时检查状态
+        window.addEventListener('load', function() {
+            checkStatus()
+        })
+    </script>
+</body>
+</html> 

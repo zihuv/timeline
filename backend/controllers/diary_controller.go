@@ -41,6 +41,7 @@ func (dc *DiaryController) GetDiariesByDate(c *gin.Context) {
 // CreateDiary 创建新的日记
 func (dc *DiaryController) CreateDiary(c *gin.Context) {
 	var input struct {
+		ID      string `json:"id"` // 前端生成的雪花ID
 		Content string `json:"content"`
 		Images  []struct {
 			URL  string `json:"url"`
@@ -55,6 +56,12 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 		return
 	}
 
+	// 验证ID是否提供
+	if input.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID不能为空"})
+		return
+	}
+
 	// 设置默认值
 	if input.Date == "" {
 		input.Date = time.Now().Format("2006-01-02")
@@ -64,8 +71,8 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 		input.Timestamp = time.Now().Format("15:04")
 	}
 
-	// 生成雪花ID
-	diaryID := utils.GenerateID()
+	// 使用前端提供的ID
+	diaryID := input.ID
 
 	// 创建日记条目
 	entry := models.DiaryEntry{
@@ -79,7 +86,7 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 	// 添加图片
 	for _, img := range input.Images {
 		entry.Images = append(entry.Images, models.DiaryImage{
-			ID:      utils.GenerateID(),
+			ID:      utils.GenerateID(), // 图片ID仍由后端生成
 			DiaryID: diaryID,
 			URL:     img.URL,
 			Name:    img.Name,
@@ -185,4 +192,21 @@ func (dc *DiaryController) UpdateDiary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, entry)
+}
+
+// ClearAllDiaries 清理所有日记数据
+func (dc *DiaryController) ClearAllDiaries(c *gin.Context) {
+	// 先删除所有图片
+	if err := dc.DB.Where("1 = 1").Delete(&models.DiaryImage{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "清理图片数据失败"})
+		return
+	}
+
+	// 再删除所有日记
+	if err := dc.DB.Where("1 = 1").Delete(&models.DiaryEntry{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "清理日记数据失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "所有数据已清理"})
 }

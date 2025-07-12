@@ -1,5 +1,6 @@
 import configManager from './config.js'
 import { generateId } from './snowflake.js'
+import indexedDBService from './indexeddb.js'
 
 // API服务类
 class ApiService {
@@ -37,7 +38,15 @@ class ApiService {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
-      return await response.json()
+      // 检查响应内容类型
+      const contentType = response.headers.get('content-type')
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json()
+      } else {
+        // 如果不是JSON，可能是HTML错误页面
+        const text = await response.text()
+        throw new Error(`服务器返回非JSON数据: ${text.substring(0, 100)}...`)
+      }
     } catch (error) {
       console.error(`API请求失败: ${apiUrl}`, error)
       throw error
@@ -57,43 +66,79 @@ class ApiService {
 
   // 保存日记
   async saveDiary(diary) {
+    // 无论是否配置服务器，都先保存到本地
+    const localResult = await this.saveLocalDiary(diary)
+    
+    // 如果配置了服务器，再同步到服务器
     if (this.isServerMode()) {
-      // 服务器模式：保存到后端
-      return await this.request('/diaries', {
-        method: 'POST',
-        body: JSON.stringify(diary)
-      })
-    } else {
-      // 本地模式：保存到localStorage
-      return this.saveLocalDiary(diary)
+      try {
+        // 确保发送给服务器的数据包含前端生成的ID
+        const serverData = {
+          ...diary,
+          id: localResult.id // 使用本地保存后返回的ID
+        }
+        
+        const serverResult = await this.request('/diaries', {
+          method: 'POST',
+          body: JSON.stringify(serverData)
+        })
+        // 返回服务器结果，但本地已经保存了
+        return serverResult
+      } catch (error) {
+        console.error('同步到服务器失败:', error)
+        // 即使服务器同步失败，本地保存成功，返回本地结果
+        return localResult
+      }
     }
+    
+    return localResult
   }
 
   // 更新日记
   async updateDiary(id, data) {
+    // 无论是否配置服务器，都先更新本地
+    const localResult = await this.updateLocalDiary(id, data)
+    
+    // 如果配置了服务器，再同步到服务器
     if (this.isServerMode()) {
-      // 服务器模式：更新到后端
-      return await this.request(`/diaries/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data)
-      })
-    } else {
-      // 本地模式：更新到localStorage
-      return this.updateLocalDiary(id, data)
+      try {
+        const serverResult = await this.request(`/diaries/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(data)
+        })
+        // 返回服务器结果，但本地已经更新了
+        return serverResult
+      } catch (error) {
+        console.error('同步到服务器失败:', error)
+        // 即使服务器同步失败，本地更新成功，返回本地结果
+        return localResult
+      }
     }
+    
+    return localResult
   }
 
   // 删除日记
   async deleteDiary(id) {
+    // 无论是否配置服务器，都先删除本地
+    const localResult = await this.deleteLocalDiary(id)
+    
+    // 如果配置了服务器，再同步到服务器
     if (this.isServerMode()) {
-      // 服务器模式：从后端删除
-      return await this.request(`/diaries/${id}`, {
-        method: 'DELETE'
-      })
-    } else {
-      // 本地模式：从localStorage删除
-      return this.deleteLocalDiary(id)
+      try {
+        const serverResult = await this.request(`/diaries/${id}`, {
+          method: 'DELETE'
+        })
+        // 返回服务器结果，但本地已经删除了
+        return serverResult
+      } catch (error) {
+        console.error('同步到服务器失败:', error)
+        // 即使服务器同步失败，本地删除成功，返回本地结果
+        return localResult
+      }
     }
+    
+    return localResult
   }
 
   // 测试服务器连接
@@ -105,85 +150,36 @@ class ApiService {
   }
 
   // 本地存储相关方法
-  getLocalDiaries(date) {
+  async getLocalDiaries(date) {
     try {
-      const allDiaries = JSON.parse(localStorage.getItem('diaries') || '[]')
-      const dayDiary = allDiaries.find(d => d.date === date)
-      return dayDiary ? dayDiary.entries : []
+      return await indexedDBService.getDiaries(date)
     } catch (error) {
       console.error('获取本地日记失败:', error)
-      return []
+      throw error
     }
   }
 
-  saveLocalDiary(diary) {
+  async saveLocalDiary(diary) {
     try {
-      const allDiaries = JSON.parse(localStorage.getItem('diaries') || '[]')
-      const dateStr = diary.date
-      const dayIndex = allDiaries.findIndex(d => d.date === dateStr)
-      
-      // 生成雪花ID
-      const newDiary = {
-        ...diary,
-        id: generateId(),
-        createdAt: new Date().toISOString()
-      }
-
-      if (dayIndex >= 0) {
-        allDiaries[dayIndex].entries.push(newDiary)
-      } else {
-        allDiaries.push({
-          date: dateStr,
-          entries: [newDiary]
-        })
-      }
-
-      localStorage.setItem('diaries', JSON.stringify(allDiaries))
-      return newDiary
+      return await indexedDBService.saveDiary(diary)
     } catch (error) {
       console.error('保存本地日记失败:', error)
       throw error
     }
   }
 
-  updateLocalDiary(id, data) {
+  async updateLocalDiary(id, data) {
     try {
-      const allDiaries = JSON.parse(localStorage.getItem('diaries') || '[]')
-      
-      for (const dayDiary of allDiaries) {
-        const entryIndex = dayDiary.entries.findIndex(entry => entry.id === id)
-        if (entryIndex >= 0) {
-          dayDiary.entries[entryIndex] = {
-            ...dayDiary.entries[entryIndex],
-            ...data,
-            updatedAt: new Date().toISOString()
-          }
-          localStorage.setItem('diaries', JSON.stringify(allDiaries))
-          return dayDiary.entries[entryIndex]
-        }
-      }
-      
-      throw new Error('未找到要更新的日记')
+      return await indexedDBService.updateDiary(id, data)
     } catch (error) {
       console.error('更新本地日记失败:', error)
       throw error
     }
   }
 
-  deleteLocalDiary(id) {
+  async deleteLocalDiary(id) {
     try {
-      const allDiaries = JSON.parse(localStorage.getItem('diaries') || '[]')
-      
-      for (const dayDiary of allDiaries) {
-        const entryIndex = dayDiary.entries.findIndex(entry => entry.id === id)
-        if (entryIndex >= 0) {
-          dayDiary.entries.splice(entryIndex, 1)
-          localStorage.setItem('diaries', JSON.stringify(allDiaries))
-          return true
-        }
-      }
-      
-      throw new Error('未找到要删除的日记')
+      return await indexedDBService.deleteDiary(id)
     } catch (error) {
       console.error('删除本地日记失败:', error)
       throw error
@@ -197,20 +193,66 @@ class ApiService {
     }
 
     try {
-      const allDiaries = JSON.parse(localStorage.getItem('diaries') || '[]')
+      const allDiaries = await indexedDBService.getAllDiaries()
       const results = []
 
-      for (const dayDiary of allDiaries) {
-        for (const entry of dayDiary.entries) {
-          try {
-            const result = await this.request('/diaries', {
-              method: 'POST',
-              body: JSON.stringify(entry)
-            })
-            results.push({ success: true, entry, result })
-          } catch (error) {
-            results.push({ success: false, entry, error: error.message })
+      // 先获取服务器上已有的数据，用于去重
+      let serverDiaries = []
+      try {
+        const serverData = await this.request('/diaries')
+        if (Array.isArray(serverData)) {
+          serverDiaries = serverData
+        } else {
+          console.warn('服务器返回的数据格式不正确:', serverData)
+        }
+      } catch (error) {
+        console.warn('获取服务器数据失败，将上传所有本地数据:', error)
+      }
+
+      // 创建服务器数据的ID集合，用于快速查找
+      const serverIds = new Set()
+      serverDiaries.forEach(day => {
+        if (day.entries && Array.isArray(day.entries)) {
+          day.entries.forEach(entry => {
+            if (entry.id) {
+              serverIds.add(entry.id.toString())
+            }
+          })
+        }
+      })
+
+      for (const entry of allDiaries) {
+        // 检查是否已经存在于服务器
+        if (serverIds.has(entry.id.toString())) {
+          results.push({ 
+            success: true, 
+            entry, 
+            result: null, 
+            skipped: true,
+            reason: '已存在于服务器'
+          })
+          continue
+        }
+
+        try {
+          // 确保发送给服务器的数据包含正确的ID
+          const serverData = {
+            ...entry,
+            id: entry.id // 确保ID字段存在
           }
+          
+          const result = await this.request('/diaries', {
+            method: 'POST',
+            body: JSON.stringify(serverData)
+          })
+          results.push({ success: true, entry, result, skipped: false })
+        } catch (error) {
+          results.push({ 
+            success: false, 
+            entry, 
+            error: error.message, 
+            skipped: false 
+          })
         }
       }
 
@@ -229,7 +271,17 @@ class ApiService {
 
     try {
       const allDiaries = await this.request('/diaries')
-      localStorage.setItem('diaries', JSON.stringify(allDiaries))
+      
+      // 清空现有数据
+      await indexedDBService.clearAll()
+      
+      // 导入服务器数据
+      for (const dayDiary of allDiaries) {
+        for (const entry of dayDiary.entries) {
+          await indexedDBService.saveDiary(entry)
+        }
+      }
+      
       return allDiaries
     } catch (error) {
       console.error('从服务器同步失败:', error)

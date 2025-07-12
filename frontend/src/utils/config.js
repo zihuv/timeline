@@ -35,10 +35,31 @@ class ConfigManager {
   getApiBaseUrl() {
     const serverUrl = this.getServerUrl()
     if (serverUrl) {
+      // 处理服务器地址格式
+      let fullUrl = serverUrl
+      
+      // 如果地址以 http: 或 https: 开头但没有双斜杠，添加双斜杠
+      if (fullUrl.startsWith('http:') && !fullUrl.startsWith('http://')) {
+        fullUrl = fullUrl.replace('http:', 'http://')
+        console.log('修复了协议格式:', serverUrl, '->', fullUrl)
+      } else if (fullUrl.startsWith('https:') && !fullUrl.startsWith('https://')) {
+        fullUrl = fullUrl.replace('https:', 'https://')
+        console.log('修复了协议格式:', serverUrl, '->', fullUrl)
+      }
+      
+      // 如果地址没有协议，添加 http://
+      if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+        fullUrl = `http://${fullUrl}`
+        console.log('添加了协议:', serverUrl, '->', fullUrl)
+      }
+      
       // 如果配置了服务器地址，使用配置的地址
-      return serverUrl.endsWith('/') ? `${serverUrl}api` : `${serverUrl}/api`
+      const apiUrl = fullUrl.endsWith('/') ? `${fullUrl}api` : `${fullUrl}/api`
+      console.log('API基础URL:', apiUrl, '(原始配置:', serverUrl, ')')
+      return apiUrl
     } else {
       // 如果没有配置，使用相对路径（本地开发模式）
+      console.log('使用本地模式，API基础URL: /api')
       return '/api'
     }
   }
@@ -160,9 +181,66 @@ class ConfigManager {
       throw new Error(`从服务器加载配置失败: ${error.message}`)
     }
   }
+
+  // 检查和修复配置
+  checkAndFixConfig() {
+    const serverUrl = this.getServerUrl()
+    console.log('=== 配置检查 ===')
+    console.log('当前配置:', this.config)
+    console.log('服务器地址:', serverUrl)
+    
+    if (serverUrl) {
+      // 检查URL格式
+      let issues = []
+      
+      if (serverUrl.startsWith('http:') && !serverUrl.startsWith('http://')) {
+        issues.push('协议格式错误: 缺少双斜杠')
+      }
+      
+      if (serverUrl.startsWith('https:') && !serverUrl.startsWith('https://')) {
+        issues.push('协议格式错误: 缺少双斜杠')
+      }
+      
+      if (!serverUrl.startsWith('http://') && !serverUrl.startsWith('https://') && !serverUrl.startsWith('http:') && !serverUrl.startsWith('https:')) {
+        issues.push('缺少协议')
+      }
+      
+      if (issues.length > 0) {
+        console.warn('发现配置问题:', issues)
+        
+        // 自动修复
+        let fixedUrl = serverUrl
+        if (fixedUrl.startsWith('http:') && !fixedUrl.startsWith('http://')) {
+          fixedUrl = fixedUrl.replace('http:', 'http://')
+        } else if (fixedUrl.startsWith('https:') && !fixedUrl.startsWith('https://')) {
+          fixedUrl = fixedUrl.replace('https:', 'https://')
+        } else if (!fixedUrl.startsWith('http://') && !fixedUrl.startsWith('https://')) {
+          fixedUrl = `http://${fixedUrl}`
+        }
+        
+        if (fixedUrl !== serverUrl) {
+          console.log('自动修复配置:', serverUrl, '->', fixedUrl)
+          this.updateConfig({ serverUrl: fixedUrl })
+          return { fixed: true, oldUrl: serverUrl, newUrl: fixedUrl }
+        }
+      } else {
+        console.log('配置格式正确')
+      }
+    } else {
+      console.log('未配置服务器地址，使用本地模式')
+    }
+    
+    console.log('API基础URL:', this.getApiBaseUrl())
+    console.log('=== 配置检查完成 ===')
+    
+    return { fixed: false }
+  }
 }
 
 // 创建全局配置管理器实例
 const configManager = new ConfigManager()
+
+// 启动时自动检查和修复配置
+configManager.checkAndFixConfig()
 
 export default configManager 

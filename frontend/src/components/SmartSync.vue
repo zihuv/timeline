@@ -160,6 +160,7 @@ import {
   Check, CircleCheckFilled, CircleCloseFilled, Setting 
 } from '@element-plus/icons-vue'
 import apiService from '@/utils/api.js'
+import indexedDBService from '@/utils/indexeddb.js'
 
 const props = defineProps({
   modelValue: {
@@ -270,23 +271,35 @@ const canSync = computed(() => {
 
 // 加载统计数据
 async function loadStats() {
-  // 本地统计
+  // 本地统计 - 使用 IndexedDB
   try {
-    const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
-    localStats.entries = localData.reduce((total, day) => total + day.entries.length, 0)
-    localStats.days = localData.length
+    const stats = await indexedDBService.getStats()
+    localStats.entries = stats.totalDiaries
+    localStats.days = stats.uniqueDates
   } catch (error) {
     console.error('加载本地统计失败:', error)
+    localStats.entries = 0
+    localStats.days = 0
   }
 
   // 服务器统计
   if (apiService.isServerMode()) {
     try {
       const serverData = await apiService.request('/diaries')
-      serverStats.entries = serverData.reduce((total, day) => total + day.entries.length, 0)
-      serverStats.days = serverData.length
+      // 确保 serverData 是数组
+      if (Array.isArray(serverData)) {
+        serverStats.entries = serverData.reduce((total, day) => total + (day.entries?.length || 0), 0)
+        serverStats.days = serverData.length
+      } else {
+        console.warn('服务器返回的数据格式不正确:', serverData)
+        serverStats.entries = 0
+        serverStats.days = 0
+      }
     } catch (error) {
       console.error('加载服务器统计失败:', error)
+      // 服务器不可用时，显示为0
+      serverStats.entries = 0
+      serverStats.days = 0
     }
   }
 }
@@ -344,7 +357,20 @@ async function downloadFromServer() {
     syncProgress.value = 60
     
     progressText.value = '正在保存到本地...'
-    localStorage.setItem('diaries', JSON.stringify(serverData))
+    // 清空现有数据
+    await indexedDBService.clearAll()
+    
+    // 确保 serverData 是数组
+    const validServerData = Array.isArray(serverData) ? serverData : []
+    
+    // 导入服务器数据
+    for (const dayDiary of validServerData) {
+      if (dayDiary.entries && Array.isArray(dayDiary.entries)) {
+        for (const entry of dayDiary.entries) {
+          await indexedDBService.saveDiary(entry)
+        }
+      }
+    }
     syncProgress.value = 100
     
     syncProgressStatus.value = 'success'
@@ -374,7 +400,8 @@ async function uploadToServer() {
     progressText.value = '正在准备本地数据...'
     syncProgress.value = 20
     
-    const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
+    // 获取本地数据
+    const localDiaries = await indexedDBService.getAllDiaries()
     syncProgress.value = 40
     
     progressText.value = '正在上传到云端...'
@@ -382,18 +409,30 @@ async function uploadToServer() {
     syncProgress.value = 80
     
     progressText.value = '正在验证上传结果...'
-    const successCount = results.filter(r => r.success).length
-    const failCount = results.length - successCount
+    const successCount = results.filter(r => r.success && !r.skipped).length
+    const skipCount = results.filter(r => r.skipped).length
+    const failCount = results.filter(r => !r.success).length
     syncProgress.value = 100
     
-    syncProgressStatus.value = successCount === results.length ? 'success' : 'warning'
+    syncProgressStatus.value = failCount === 0 ? 'success' : 'warning'
     progressText.value = '上传完成'
+    
+    let details = ''
+    if (successCount > 0) {
+      details += `成功上传 ${successCount} 条日记`
+    }
+    if (skipCount > 0) {
+      details += details ? `，跳过 ${skipCount} 条已存在的日记` : `跳过 ${skipCount} 条已存在的日记`
+    }
+    if (failCount > 0) {
+      details += details ? `，${failCount} 条上传失败` : `${failCount} 条上传失败`
+    }
     
     syncResult.value = {
       success: true,
       title: '上传完成',
-      message: `成功上传 ${successCount} 条日记到云端`,
-      details: failCount > 0 ? `有 ${failCount} 条数据上传失败` : '所有数据上传成功'
+      message: `本地数据已同步到云端`,
+      details: details || '所有数据已是最新状态'
     }
     
     await loadStats()
@@ -413,33 +452,76 @@ async function mergeData() {
     progressText.value = '正在分析数据差异...'
     syncProgress.value = 20
     
-    const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
+    // 获取本地数据
+    const localDiaries = await indexedDBService.getAllDiaries()
     const serverData = await apiService.request('/diaries')
     syncProgress.value = 40
     
     progressText.value = '正在智能合并数据...'
-    const mergedData = mergeDataById(localData, serverData)
+    // 将本地数据转换为原来的格式
+    const localData = []
+    const dateGroups = {}
+    localDiaries.forEach(diary => {
+      if (!dateGroups[diary.date]) {
+        dateGroups[diary.date] = []
+      }
+      dateGroups[diary.date].push(diary)
+    })
+    Object.keys(dateGroups).forEach(date => {
+      localData.push({
+        date,
+        entries: dateGroups[date]
+      })
+    })
+    
+    // 确保 serverData 是数组
+    const validServerData = Array.isArray(serverData) ? serverData : []
+    const mergedData = mergeDataById(localData, validServerData)
     syncProgress.value = 60
     
-    progressText.value = '正在保存合并结果...'
-    localStorage.setItem('diaries', JSON.stringify(mergedData))
+    progressText.value = '正在保存合并结果到本地...'
+    // 清空现有数据并保存合并结果
+    await indexedDBService.clearAll()
+    for (const dayDiary of mergedData) {
+      if (dayDiary.entries && Array.isArray(dayDiary.entries)) {
+        for (const entry of dayDiary.entries) {
+          await indexedDBService.saveDiary(entry)
+        }
+      }
+    }
     syncProgress.value = 80
     
-    progressText.value = '正在同步到云端...'
-    await apiService.syncToServer()
+    progressText.value = '正在上传合并结果到云端...'
+    // 上传合并后的数据到云端
+    const uploadResults = await apiService.syncToServer()
+    const successCount = uploadResults.filter(r => r.success && !r.skipped).length
+    const skipCount = uploadResults.filter(r => r.skipped).length
+    const failCount = uploadResults.filter(r => !r.success).length
+    
     syncProgress.value = 100
     
-    syncProgressStatus.value = 'success'
+    syncProgressStatus.value = failCount === 0 ? 'success' : 'warning'
     progressText.value = '合并完成'
     
     const totalEntries = mergedData.reduce((total, day) => total + day.entries.length, 0)
     const totalDays = mergedData.length
     
+    let details = `合并后共有 ${totalEntries} 条日记，${totalDays} 天的数据`
+    if (successCount > 0) {
+      details += `，成功上传 ${successCount} 条到云端`
+    }
+    if (skipCount > 0) {
+      details += `，跳过 ${skipCount} 条已存在的日记`
+    }
+    if (failCount > 0) {
+      details += `，${failCount} 条上传失败`
+    }
+    
     syncResult.value = {
       success: true,
       title: '合并成功',
       message: `成功合并本地和云端数据`,
-      details: `合并后共有 ${totalEntries} 条日记，${totalDays} 天的数据`
+      details: details
     }
     
     await loadStats()

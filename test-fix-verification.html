@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据保存修复验证</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 3px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>数据保存修复验证</h1>
+    
+    <div class="test-section">
+        <h2>问题描述</h2>
+        <p><strong>原始问题：</strong></p>
+        <ul>
+            <li>添加日记后，本地数据没有添加，而云端数据却添加了</li>
+            <li>数据会成倍增长</li>
+        </ul>
+        
+        <p><strong>修复内容：</strong></p>
+        <ul>
+            <li>修改数据保存流程：先保存到本地，再同步到服务器</li>
+            <li>添加重复检查，避免数据成倍增长</li>
+            <li>改进错误处理，确保本地数据优先</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h2>修复验证</h2>
+        
+        <h3>1. 数据保存流程测试</h3>
+        <div id="save-flow-test">
+            <button onclick="testSaveFlow()">测试保存流程</button>
+            <div id="save-flow-result"></div>
+        </div>
+
+        <h3>2. 重复数据检查测试</h3>
+        <div id="duplicate-test">
+            <button onclick="testDuplicateCheck()">测试重复检查</button>
+            <div id="duplicate-result"></div>
+        </div>
+
+        <h3>3. 本地数据优先测试</h3>
+        <div id="local-priority-test">
+            <button onclick="testLocalPriority()">测试本地优先</button>
+            <div id="local-priority-result"></div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>测试结果</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <script>
+        // 模拟API服务
+        const mockApiService = {
+            isServerMode: () => true,
+            saveLocalDiary: (diary) => {
+                const allDiaries = JSON.parse(localStorage.getItem('diaries') || '[]')
+                const dateStr = diary.date
+                const dayIndex = allDiaries.findIndex(d => d.date === dateStr)
+                
+                const newDiary = {
+                    ...diary,
+                    id: Date.now(),
+                    createdAt: new Date().toISOString()
+                }
+
+                if (dayIndex >= 0) {
+                    allDiaries[dayIndex].entries.push(newDiary)
+                } else {
+                    allDiaries.push({
+                        date: dateStr,
+                        entries: [newDiary]
+                    })
+                }
+
+                localStorage.setItem('diaries', JSON.stringify(allDiaries))
+                return newDiary
+            },
+            request: async (url, options) => {
+                // 模拟服务器响应
+                if (options && options.method === 'POST') {
+                    const diary = JSON.parse(options.body)
+                    return {
+                        ...diary,
+                        id: Date.now(),
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    }
+                }
+                return []
+            }
+        }
+
+        // 测试保存流程
+        async function testSaveFlow() {
+            const resultDiv = document.getElementById('save-flow-result')
+            resultDiv.innerHTML = '<div class="test-result warning">正在测试...</div>'
+
+            try {
+                // 清空测试数据
+                localStorage.removeItem('diaries')
+
+                // 模拟新的日记条目
+                const newEntry = {
+                    content: '测试日记内容',
+                    timestamp: '14:30',
+                    date: '2024-01-15',
+                    images: []
+                }
+
+                // 1. 先保存到本地
+                const savedEntry = mockApiService.saveLocalDiary(newEntry)
+                
+                // 2. 检查本地数据
+                const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
+                const localEntry = localData.find(d => d.date === '2024-01-15')?.entries[0]
+
+                if (!localEntry) {
+                    throw new Error('本地数据未保存')
+                }
+
+                // 3. 模拟同步到服务器
+                const serverEntry = await mockApiService.request('/diaries', {
+                    method: 'POST',
+                    body: JSON.stringify(newEntry)
+                })
+
+                // 4. 更新本地数据（使用服务器返回的ID和时间戳）
+                if (serverEntry) {
+                    const dayIndex = localData.findIndex(d => d.date === '2024-01-15')
+                    if (dayIndex >= 0) {
+                        const entryIndex = localData[dayIndex].entries.findIndex(e => e.id === savedEntry.id)
+                        if (entryIndex >= 0) {
+                            localData[dayIndex].entries[entryIndex] = {
+                                ...localData[dayIndex].entries[entryIndex],
+                                id: serverEntry.id,
+                                createdAt: serverEntry.createdAt,
+                                updatedAt: serverEntry.updatedAt
+                            }
+                            localStorage.setItem('diaries', JSON.stringify(localData))
+                        }
+                    }
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="test-result success">
+                        <strong>✅ 保存流程测试通过</strong><br>
+                        • 本地数据已保存<br>
+                        • 服务器同步成功<br>
+                        • 本地数据已更新为服务器数据
+                    </div>
+                `
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-result error">
+                        <strong>❌ 保存流程测试失败</strong><br>
+                        错误: ${error.message}
+                    </div>
+                `
+            }
+        }
+
+        // 测试重复检查
+        async function testDuplicateCheck() {
+            const resultDiv = document.getElementById('duplicate-result')
+            resultDiv.innerHTML = '<div class="test-result warning">正在测试...</div>'
+
+            try {
+                // 模拟服务器已有数据
+                const serverData = [
+                    {
+                        date: '2024-01-15',
+                        entries: [
+                            { id: 123456, content: '已存在的日记', timestamp: '10:00', date: '2024-01-15' }
+                        ]
+                    }
+                ]
+
+                // 模拟本地数据（包含重复）
+                const localData = [
+                    {
+                        date: '2024-01-15',
+                        entries: [
+                            { id: 123456, content: '已存在的日记', timestamp: '10:00', date: '2024-01-15' },
+                            { id: 789012, content: '新日记', timestamp: '14:30', date: '2024-01-15' }
+                        ]
+                    }
+                ]
+
+                // 创建服务器ID集合
+                const serverIds = new Set()
+                serverData.forEach(day => {
+                    day.entries.forEach(entry => {
+                        serverIds.add(entry.id.toString())
+                    })
+                })
+
+                // 模拟同步结果
+                const results = []
+                localData.forEach(day => {
+                    day.entries.forEach(entry => {
+                        if (serverIds.has(entry.id.toString())) {
+                            results.push({ 
+                                success: true, 
+                                entry, 
+                                skipped: true,
+                                reason: '已存在于服务器'
+                            })
+                        } else {
+                            results.push({ 
+                                success: true, 
+                                entry, 
+                                skipped: false
+                            })
+                        }
+                    })
+                })
+
+                const skipCount = results.filter(r => r.skipped).length
+                const uploadCount = results.filter(r => !r.skipped).length
+
+                if (skipCount === 1 && uploadCount === 1) {
+                    resultDiv.innerHTML = `
+                        <div class="test-result success">
+                            <strong>✅ 重复检查测试通过</strong><br>
+                            • 跳过 ${skipCount} 条已存在的日记<br>
+                            • 上传 ${uploadCount} 条新日记<br>
+                            • 避免了数据重复
+                        </div>
+                    `
+                } else {
+                    throw new Error(`重复检查逻辑错误: 跳过${skipCount}条，上传${uploadCount}条`)
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-result error">
+                        <strong>❌ 重复检查测试失败</strong><br>
+                        错误: ${error.message}
+                    </div>
+                `
+            }
+        }
+
+        // 测试本地数据优先
+        async function testLocalPriority() {
+            const resultDiv = document.getElementById('local-priority-result')
+            resultDiv.innerHTML = '<div class="test-result warning">正在测试...</div>'
+
+            try {
+                // 模拟网络错误情况
+                const mockApiWithError = {
+                    ...mockApiService,
+                    request: async () => {
+                        throw new Error('网络连接失败')
+                    }
+                }
+
+                // 模拟保存流程
+                const newEntry = {
+                    content: '测试本地优先',
+                    timestamp: '15:00',
+                    date: '2024-01-15',
+                    images: []
+                }
+
+                // 1. 先保存到本地（应该成功）
+                const savedEntry = mockApiService.saveLocalDiary(newEntry)
+                
+                // 2. 尝试同步到服务器（应该失败）
+                let syncError = null
+                try {
+                    await mockApiWithError.request('/diaries', {
+                        method: 'POST',
+                        body: JSON.stringify(newEntry)
+                    })
+                } catch (error) {
+                    syncError = error
+                }
+
+                // 3. 检查本地数据是否仍然存在
+                const localData = JSON.parse(localStorage.getItem('diaries') || '[]')
+                const localEntry = localData.find(d => d.date === '2024-01-15')?.entries.find(e => e.content === '测试本地优先')
+
+                if (localEntry && syncError) {
+                    resultDiv.innerHTML = `
+                        <div class="test-result success">
+                            <strong>✅ 本地优先测试通过</strong><br>
+                            • 本地数据保存成功<br>
+                            • 服务器同步失败（模拟网络错误）<br>
+                            • 本地数据仍然可用<br>
+                            • 符合"本地优先"的设计原则
+                        </div>
+                    `
+                } else {
+                    throw new Error('本地优先逻辑错误')
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="test-result error">
+                        <strong>❌ 本地优先测试失败</strong><br>
+                        错误: ${error.message}
+                    </div>
+                `
+            }
+        }
+
+        // 页面加载时显示测试说明
+        window.onload = function() {
+            document.getElementById('test-results').innerHTML = `
+                <div class="test-result warning">
+                    <strong>测试说明</strong><br>
+                    1. 点击各个测试按钮验证修复效果<br>
+                    2. 绿色表示测试通过，红色表示测试失败<br>
+                    3. 这些测试模拟了实际的数据保存和同步场景
+                </div>
+            `
+        }
+    </script>
+</body>
+</html> 

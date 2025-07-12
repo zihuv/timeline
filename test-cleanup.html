@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据清理功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button.danger {
+            background-color: #dc3545;
+        }
+        button.danger:hover {
+            background-color: #c82333;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+        }
+        .result.success {
+            background-color: #d4edda;
+            border-left-color: #28a745;
+        }
+        .result.error {
+            background-color: #f8d7da;
+            border-left-color: #dc3545;
+        }
+        .data-display {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>数据清理功能测试</h1>
+        
+        <div class="test-section">
+            <h3>1. 测试数据准备</h3>
+            <button onclick="prepareTestData()">准备测试数据</button>
+            <button onclick="showLocalData()">显示本地数据</button>
+            <div id="testDataResult" class="result"></div>
+            <div id="localDataDisplay" class="data-display" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>2. 清理功能测试</h3>
+            <button onclick="testLocalCleanup()">测试本地数据清理</button>
+            <button onclick="testServerCleanup()">测试服务器数据清理</button>
+            <button onclick="testAllCleanup()">测试全部数据清理</button>
+            <div id="cleanupResult" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>3. 验证清理结果</h3>
+            <button onclick="verifyCleanup()">验证清理结果</button>
+            <div id="verifyResult" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>4. 恢复测试数据</h3>
+            <button onclick="restoreTestData()">恢复测试数据</button>
+            <div id="restoreResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        // 测试数据
+        const testData = [
+            {
+                date: "2024-01-01",
+                entries: [
+                    {
+                        id: "1234567890123456789",
+                        content: "测试日记1",
+                        timestamp: "09:00",
+                        images: [],
+                        createdAt: "2024-01-01T09:00:00.000Z",
+                        updatedAt: "2024-01-01T09:00:00.000Z"
+                    }
+                ]
+            },
+            {
+                date: "2024-01-02",
+                entries: [
+                    {
+                        id: "1234567890123456790",
+                        content: "测试日记2",
+                        timestamp: "10:00",
+                        images: [],
+                        createdAt: "2024-01-02T10:00:00.000Z",
+                        updatedAt: "2024-01-02T10:00:00.000Z"
+                    }
+                ]
+            }
+        ];
+
+        // 准备测试数据
+        function prepareTestData() {
+            try {
+                localStorage.setItem('diaries', JSON.stringify(testData));
+                showResult('testDataResult', '测试数据准备成功！', 'success');
+            } catch (error) {
+                showResult('testDataResult', '测试数据准备失败: ' + error.message, 'error');
+            }
+        }
+
+        // 显示本地数据
+        function showLocalData() {
+            try {
+                const data = localStorage.getItem('diaries');
+                const display = document.getElementById('localDataDisplay');
+                if (data) {
+                    display.textContent = data;
+                    display.style.display = 'block';
+                } else {
+                    display.textContent = '本地无数据';
+                    display.style.display = 'block';
+                }
+            } catch (error) {
+                showResult('testDataResult', '显示本地数据失败: ' + error.message, 'error');
+            }
+        }
+
+        // 测试本地数据清理
+        function testLocalCleanup() {
+            try {
+                // 模拟清理确认对话框
+                if (confirm('确定要清理本地数据吗？\n\n• 本地数据：2 条日记，2 天\n\n⚠️ 此操作不可恢复！')) {
+                    localStorage.removeItem('diaries');
+                    showResult('cleanupResult', '本地数据清理成功！', 'success');
+                } else {
+                    showResult('cleanupResult', '用户取消了清理操作', 'error');
+                }
+            } catch (error) {
+                showResult('cleanupResult', '本地数据清理失败: ' + error.message, 'error');
+            }
+        }
+
+        // 测试服务器数据清理
+        function testServerCleanup() {
+            try {
+                // 模拟清理确认对话框
+                if (confirm('确定要清理服务器数据吗？\n\n• 服务器数据：0 条日记，0 天\n\n⚠️ 此操作不可恢复！')) {
+                    // 这里应该调用实际的API
+                    showResult('cleanupResult', '服务器数据清理成功！（模拟）', 'success');
+                } else {
+                    showResult('cleanupResult', '用户取消了清理操作', 'error');
+                }
+            } catch (error) {
+                showResult('cleanupResult', '服务器数据清理失败: ' + error.message, 'error');
+            }
+        }
+
+        // 测试全部数据清理
+        function testAllCleanup() {
+            try {
+                // 模拟清理确认对话框
+                if (confirm('确定要清理所有数据吗？\n\n• 所有数据：2 条日记，2 天\n\n⚠️ 此操作不可恢复！')) {
+                    localStorage.removeItem('diaries');
+                    showResult('cleanupResult', '所有数据清理成功！', 'success');
+                } else {
+                    showResult('cleanupResult', '用户取消了清理操作', 'error');
+                }
+            } catch (error) {
+                showResult('cleanupResult', '全部数据清理失败: ' + error.message, 'error');
+            }
+        }
+
+        // 验证清理结果
+        function verifyCleanup() {
+            try {
+                const data = localStorage.getItem('diaries');
+                if (!data) {
+                    showResult('verifyResult', '验证成功：本地数据已清理', 'success');
+                } else {
+                    const parsedData = JSON.parse(data);
+                    showResult('verifyResult', `验证结果：本地还有 ${parsedData.length} 天的数据`, 'error');
+                }
+            } catch (error) {
+                showResult('verifyResult', '验证失败: ' + error.message, 'error');
+            }
+        }
+
+        // 恢复测试数据
+        function restoreTestData() {
+            try {
+                localStorage.setItem('diaries', JSON.stringify(testData));
+                showResult('restoreResult', '测试数据恢复成功！', 'success');
+            } catch (error) {
+                showResult('restoreResult', '测试数据恢复失败: ' + error.message, 'error');
+            }
+        }
+
+        // 显示结果
+        function showResult(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `result ${type}`;
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            console.log('数据清理功能测试页面已加载');
+            console.log('测试数据:', testData);
+        };
+    </script>
+</body>
+</html> 

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>重复数据清理测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <h1>重复数据清理测试</h1>
+    
+    <div class="test-section">
+        <h3>1. 创建重复数据</h3>
+        <button onclick="createDuplicateData()">创建重复数据</button>
+        <div id="create-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>2. 查看当前数据</h3>
+        <button onclick="viewCurrentData()">查看数据</button>
+        <div id="view-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>3. 清理重复数据</h3>
+        <button onclick="cleanupDuplicateData()">清理重复数据</button>
+        <div id="cleanup-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>4. 验证清理结果</h3>
+        <button onclick="verifyCleanup()">验证结果</button>
+        <div id="verify-result" class="result"></div>
+    </div>
+
+    <script type="module">
+        import { generateId } from './frontend/src/utils/snowflake.js';
+        
+        // 模拟 IndexedDB 服务
+        class MockIndexedDBService {
+            constructor() {
+                this.data = [];
+            }
+            
+            async getAllDiaries() {
+                return this.data;
+            }
+            
+            async saveDiary(diary) {
+                const newDiary = {
+                    ...diary,
+                    id: diary.id || generateId(),
+                    createdAt: diary.createdAt || new Date().toISOString(),
+                    updatedAt: diary.updatedAt || new Date().toISOString()
+                };
+                this.data.push(newDiary);
+                return newDiary;
+            }
+            
+            async clearAll() {
+                this.data = [];
+                return true;
+            }
+        }
+        
+        const mockDB = new MockIndexedDBService();
+        
+        // 创建重复数据
+        window.createDuplicateData = async function() {
+            try {
+                const resultDiv = document.getElementById('create-result');
+                
+                // 创建一些原始数据
+                const originalData = [
+                    {
+                        content: '第一条日记',
+                        date: '2024-01-01',
+                        timestamp: '10:00'
+                    },
+                    {
+                        content: '第二条日记',
+                        date: '2024-01-01',
+                        timestamp: '11:00'
+                    }
+                ];
+                
+                // 保存原始数据
+                for (const diary of originalData) {
+                    await mockDB.saveDiary(diary);
+                }
+                
+                // 创建重复数据（相同ID，不同时间戳）
+                const duplicateData = [
+                    {
+                        id: originalData[0].id || '202302552182624260',
+                        content: '第一条日记（重复）',
+                        date: '2024-01-01',
+                        timestamp: '10:00',
+                        updatedAt: new Date(Date.now() + 1000).toISOString()
+                    },
+                    {
+                        id: originalData[1].id || '1770000384',
+                        content: '第二条日记（重复）',
+                        date: '2024-01-01',
+                        timestamp: '11:00',
+                        updatedAt: new Date(Date.now() + 2000).toISOString()
+                    }
+                ];
+                
+                // 保存重复数据
+                for (const diary of duplicateData) {
+                    await mockDB.saveDiary(diary);
+                }
+                
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>成功创建重复数据</strong><br>
+                    原始数据: ${originalData.length} 条<br>
+                    重复数据: ${duplicateData.length} 条<br>
+                    总计: ${mockDB.data.length} 条
+                `;
+            } catch (error) {
+                document.getElementById('create-result').className = 'result error';
+                document.getElementById('create-result').innerHTML = `错误: ${error.message}`;
+            }
+        };
+        
+        // 查看当前数据
+        window.viewCurrentData = async function() {
+            try {
+                const resultDiv = document.getElementById('view-result');
+                const data = await mockDB.getAllDiaries();
+                
+                resultDiv.className = 'result';
+                resultDiv.innerHTML = `
+                    <strong>当前数据 (${data.length} 条)</strong><br>
+                    ${data.map(diary => `
+                        ID: ${diary.id}<br>
+                        内容: ${diary.content}<br>
+                        时间: ${diary.timestamp}<br>
+                        更新时间: ${diary.updatedAt}<br>
+                        ---
+                    `).join('<br>')}
+                `;
+            } catch (error) {
+                document.getElementById('view-result').className = 'result error';
+                document.getElementById('view-result').innerHTML = `错误: ${error.message}`;
+            }
+        };
+        
+        // 清理重复数据
+        window.cleanupDuplicateData = async function() {
+            try {
+                const resultDiv = document.getElementById('cleanup-result');
+                const allDiaries = await mockDB.getAllDiaries();
+                const uniqueDiaries = [];
+                const seenIds = new Set();
+                
+                // 按时间戳排序，保留最新的
+                allDiaries.sort((a, b) => {
+                    const timeA = new Date(a.updatedAt || a.createdAt || 0);
+                    const timeB = new Date(b.updatedAt || b.createdAt || 0);
+                    return timeB - timeA;
+                });
+                
+                // 去重，保留最新的条目
+                allDiaries.forEach(diary => {
+                    if (!seenIds.has(diary.id)) {
+                        seenIds.add(diary.id);
+                        uniqueDiaries.push(diary);
+                    }
+                });
+                
+                // 如果发现重复数据，清理并重新保存
+                if (uniqueDiaries.length < allDiaries.length) {
+                    console.log(`发现重复数据，清理前: ${allDiaries.length} 条，清理后: ${uniqueDiaries.length} 条`);
+                    
+                    // 清空数据库
+                    await mockDB.clearAll();
+                    
+                    // 重新保存去重后的数据
+                    for (const diary of uniqueDiaries) {
+                        await mockDB.saveDiary(diary);
+                    }
+                    
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <strong>重复数据清理完成</strong><br>
+                        清理前: ${allDiaries.length} 条<br>
+                        清理后: ${uniqueDiaries.length} 条<br>
+                        清理了 ${allDiaries.length - uniqueDiaries.length} 条重复数据
+                    `;
+                } else {
+                    resultDiv.className = 'result';
+                    resultDiv.innerHTML = '<strong>没有发现重复数据</strong>';
+                }
+            } catch (error) {
+                document.getElementById('cleanup-result').className = 'result error';
+                document.getElementById('cleanup-result').innerHTML = `错误: ${error.message}`;
+            }
+        };
+        
+        // 验证清理结果
+        window.verifyCleanup = async function() {
+            try {
+                const resultDiv = document.getElementById('verify-result');
+                const data = await mockDB.getAllDiaries();
+                const ids = data.map(d => d.id);
+                const uniqueIds = new Set(ids);
+                
+                resultDiv.className = 'result';
+                if (ids.length === uniqueIds.size) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <strong>验证成功</strong><br>
+                        总数据: ${data.length} 条<br>
+                        唯一ID: ${uniqueIds.size} 个<br>
+                        没有重复数据
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `
+                        <strong>验证失败</strong><br>
+                        总数据: ${data.length} 条<br>
+                        唯一ID: ${uniqueIds.size} 个<br>
+                        仍有重复数据
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('verify-result').className = 'result error';
+                document.getElementById('verify-result').innerHTML = `错误: ${error.message}`;
+            }
+        };
+    </script>
+</body>
+</html> 

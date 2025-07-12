@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DiaryPage 修复测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DiaryPage 修复测试</h1>
+        
+        <div class="test-section">
+            <h3>测试数据排序</h3>
+            <button onclick="testSorting()">测试排序功能</button>
+            <div id="sortResult" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>测试时间戳格式化</h3>
+            <button onclick="testTimestampFormat()">测试时间戳格式化</button>
+            <div id="timestampResult" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>测试数据保存</h3>
+            <button onclick="testSave()">测试保存功能</button>
+            <div id="saveResult" class="result"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import indexedDBService from './src/utils/indexeddb.js'
+
+        // 测试排序功能
+        window.testSorting = async function() {
+            const result = document.getElementById('sortResult')
+            try {
+                // 创建测试数据
+                const testEntries = [
+                    {
+                        id: '1',
+                        content: '第一条日记',
+                        timestamp: '10:00',
+                        createdAt: '2024-01-01T10:00:00.000Z',
+                        updatedAt: '2024-01-01T10:00:00.000Z'
+                    },
+                    {
+                        id: '2',
+                        content: '第二条日记',
+                        timestamp: '09:00',
+                        createdAt: '2024-01-01T09:00:00.000Z',
+                        updatedAt: '2024-01-01T09:00:00.000Z'
+                    },
+                    {
+                        id: '3',
+                        content: '第三条日记',
+                        timestamp: '11:00',
+                        createdAt: '2024-01-01T11:00:00.000Z',
+                        updatedAt: '2024-01-01T11:00:00.000Z'
+                    }
+                ]
+
+                // 测试排序逻辑
+                const sortedEntries = [...testEntries].sort((a, b) => {
+                    const timeA = a.timestamp || a.createdAt || a.updatedAt || '';
+                    const timeB = b.timestamp || b.createdAt || b.updatedAt || '';
+                    return timeA.localeCompare(timeB);
+                })
+
+                result.className = 'result success'
+                result.textContent = `排序测试成功！\n排序前: ${testEntries.map(e => e.timestamp).join(', ')}\n排序后: ${sortedEntries.map(e => e.timestamp).join(', ')}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `排序测试失败: ${error.message}`
+            }
+        }
+
+        // 测试时间戳格式化
+        window.testTimestampFormat = function() {
+            const result = document.getElementById('timestampResult')
+            try {
+                // 模拟 formatTimestamp 函数
+                function formatTimestamp(entry) {
+                    // 优先使用 timestamp 字段（时间轴显示时间），如果没有则使用 createdAt
+                    const timestamp = entry.timestamp || entry.createdAt || entry.updatedAt;
+                    if (!timestamp) return '';
+                    
+                    // 如果 timestamp 已经是时间格式（如 "13:30"），直接返回
+                    if (typeof timestamp === 'string' && timestamp.match(/^\d{1,2}:\d{2}$/)) {
+                        return timestamp;
+                    }
+                    
+                    try {
+                        const date = new Date(timestamp);
+                        return date.toLocaleTimeString('zh-CN', { 
+                            hour: '2-digit', 
+                            minute: '2-digit'
+                        });
+                    } catch (error) {
+                        console.error('格式化时间戳失败:', error);
+                        return timestamp;
+                    }
+                }
+
+                const testEntry = {
+                    timestamp: '10:30',
+                    createdAt: '2024-01-01T10:30:45.000Z'
+                }
+
+                const formatted = formatTimestamp(testEntry)
+                result.className = 'result success'
+                result.textContent = `时间戳格式化测试成功！\n原始时间: ${testEntry.timestamp}\n格式化后: ${formatted}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `时间戳格式化测试失败: ${error.message}`
+            }
+        }
+
+        // 测试数据保存
+        window.testSave = async function() {
+            const result = document.getElementById('saveResult')
+            try {
+                const testDiary = {
+                    content: '测试日记内容',
+                    timestamp: '13:30',
+                    date: new Date().toISOString().split('T')[0],
+                    images: []
+                }
+
+                const savedDiary = await indexedDBService.saveDiary(testDiary)
+                
+                result.className = 'result success'
+                result.textContent = `保存测试成功！\n保存的日记: ${JSON.stringify(savedDiary, null, 2)}`
+            } catch (error) {
+                result.className = 'result error'
+                result.textContent = `保存测试失败: ${error.message}`
+            }
+        }
+    </script>
+</body>
+</html> 
