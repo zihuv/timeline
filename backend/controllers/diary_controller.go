@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 	"timeline/backend/models"
+	"timeline/backend/utils"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -63,8 +64,12 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 		input.Timestamp = time.Now().Format("15:04")
 	}
 
+	// 生成雪花ID
+	diaryID := utils.GenerateID()
+
 	// 创建日记条目
 	entry := models.DiaryEntry{
+		ID:        diaryID,
 		Date:      input.Date,
 		Content:   input.Content,
 		Timestamp: input.Timestamp,
@@ -74,8 +79,10 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 	// 添加图片
 	for _, img := range input.Images {
 		entry.Images = append(entry.Images, models.DiaryImage{
-			URL:  img.URL,
-			Name: img.Name,
+			ID:      utils.GenerateID(),
+			DiaryID: diaryID,
+			URL:     img.URL,
+			Name:    img.Name,
 		})
 	}
 
@@ -89,16 +96,31 @@ func (dc *DiaryController) CreateDiary(c *gin.Context) {
 	c.JSON(http.StatusCreated, entry)
 }
 
-// GetAllDiaries 获取所有日记（可分页）
+// GetAllDiaries 获取所有日记（按日期分组）
 func (dc *DiaryController) GetAllDiaries(c *gin.Context) {
 	var entries []models.DiaryEntry
-	result := dc.DB.Preload("Images").Find(&entries)
+	result := dc.DB.Preload("Images").Order("date DESC, timestamp DESC").Find(&entries)
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取日记失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, entries)
+	// 按日期分组
+	diariesByDate := make(map[string][]models.DiaryEntry)
+	for _, entry := range entries {
+		diariesByDate[entry.Date] = append(diariesByDate[entry.Date], entry)
+	}
+
+	// 转换为前端期望的格式
+	var resultData []map[string]interface{}
+	for date, dayEntries := range diariesByDate {
+		resultData = append(resultData, map[string]interface{}{
+			"date":    date,
+			"entries": dayEntries,
+		})
+	}
+
+	c.JSON(http.StatusOK, resultData)
 }
 
 // DeleteDiary 删除日记
@@ -150,8 +172,10 @@ func (dc *DiaryController) UpdateDiary(c *gin.Context) {
 	entry.Images = make([]models.DiaryImage, 0)
 	for _, img := range input.Images {
 		entry.Images = append(entry.Images, models.DiaryImage{
-			URL:  img.URL,
-			Name: img.Name,
+			ID:      utils.GenerateID(),
+			DiaryID: entry.ID,
+			URL:     img.URL,
+			Name:    img.Name,
 		})
 	}
 

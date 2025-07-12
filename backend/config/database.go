@@ -1,6 +1,8 @@
 package config
 
 import (
+	"timeline/backend/models"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -12,6 +14,16 @@ func InitDB() (*gorm.DB, error) {
 	db, err := gorm.Open(sqlite.Open(AppConfig.DBPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 自动迁移数据库表
+	err = db.AutoMigrate(&models.DiaryEntry{}, &models.DiaryImage{}, &models.Config{})
+	if err != nil {
+		return nil, err
+	}
 
 	return db, err
 }

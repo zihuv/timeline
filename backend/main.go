@@ -5,11 +5,15 @@ import (
 	"timeline/backend/config"
 	"timeline/backend/models"
 	"timeline/backend/routes"
+	"timeline/backend/utils"
 )
 
 func main() {
 	// 加载配置
 	config.LoadConfig()
+
+	// 初始化雪花ID生成器
+	utils.InitSnowflake(1) // 使用机器ID 1
 
 	// 初始化数据库
 	db, err := config.InitDB()

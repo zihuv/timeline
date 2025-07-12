@@ -68,6 +68,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import DiaryEditor from "@/components/DiaryEditor.vue"
+import apiService from "@/utils/api.js"
 
 // 响应式设计 - 检测移动设备
 const isMobile = ref(window.innerWidth < 768)
@@ -92,44 +93,8 @@ const formattedDate = computed(() => {
   return selectedDate.value.toLocaleDateString('zh-CN', options)
 })
 
-// 所有日记数据 - 实际应用中可能从localStorage或API获取
-const allDiaries = ref([
-  {
-    date: '2023-11-01',
-    entries: [
-      {
-        content: '早上起床，开始新的一天',
-        timestamp: '08:00',
-        images: []
-      },
-      {
-        content: '吃早餐，准备出门',
-        timestamp: '08:30',
-        images: []
-      },
-      {
-        content: '开始工作，处理邮件',
-        timestamp: '09:00',
-        images: []
-      },
-    ]
-  },
-  {
-    date: '2023-11-02',
-    entries: [
-      {
-        content: '参加项目会议，讨论新功能',
-        timestamp: '10:00',
-        images: []
-      },
-      {
-        content: '和同事共进午餐',
-        timestamp: '12:00',
-        images: []
-      },
-    ]
-  }
-])
+// 所有日记数据
+const allDiaries = ref([])
 
 // 根据选中日期过滤显示的日记
 const diaryEntries = computed(() => {
@@ -161,19 +126,11 @@ const editIndex = ref(null)
 // 日期变更处理
 // 在script部分添加以下代码，替换原有的本地存储逻辑
 
-// API基础URL
-// 将API_BASE_URL从
-// const API_BASE_URL = 'http://localhost:8080/api';
-// 修改为
-const API_BASE_URL = '/api';
-
 // 加载指定日期的日记
 async function loadDiariesByDate(date) {
   try {
     const dateStr = formatDate(date);
-    const response = await fetch(`${API_BASE_URL}/diaries/date?date=${dateStr}`);
-    if (!response.ok) throw new Error('加载日记失败');
-    return await response.json();
+    return await apiService.getDiaries(dateStr);
   } catch (error) {
     console.error('加载日记失败:', error);
     ElMessage.error('加载日记失败');
@@ -181,37 +138,21 @@ async function loadDiariesByDate(date) {
   }
 }
 
-// 保存日记到服务器
+// 保存日记
 async function saveDiaryToServer(diary) {
   try {
-    const response = await fetch(`${API_BASE_URL}/diaries`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(diary),
-    });
-    
-    if (!response.ok) throw new Error('保存日记失败');
-    return await response.json();
+    return await apiService.saveDiary(diary);
   } catch (error) {
     console.error('保存日记失败:', error);
     ElMessage.error('保存日记失败');
     return null;
   }
 }
-// 新增：编辑日记到服务器
+
+// 更新日记
 async function updateDiaryToServer(id, data) {
   try {
-    const response = await fetch(`${API_BASE_URL}/diaries/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('更新日记失败');
-    return await response.json();
+    return await apiService.updateDiary(id, data);
   } catch (error) {
     console.error('更新日记失败:', error);
     ElMessage.error('更新日记失败');
@@ -296,18 +237,30 @@ const handleSave = async (data) => {
 onMounted(async () => {
   // 加载当前日期的日记
   await handleDateChange();
+  
+  // 监听配置变化
+  apiService.configManager.addListener(async (config) => {
+    // 配置变化时重新加载数据
+    await handleDateChange();
+  });
+  
+  // 监听数据变化事件（来自数据管理组件）
+  window.addEventListener('diary-data-changed', async () => {
+    await handleDateChange();
+  });
 });
 
-// 移除watch(allDiaries, saveDiariesToStorage)，因为不再需要保存到本地存储
+// 监听数据变化，保存到本地存储（仅在本地模式下）
+watch(allDiaries, () => {
+  if (!apiService.isServerMode()) {
+    saveDiariesToStorage()
+  }
+}, { deep: true })
+
 // 保存数据到本地存储
 function saveDiariesToStorage() {
   localStorage.setItem('diaries', JSON.stringify(allDiaries.value))
 }
-
-// 监听数据变化，保存到本地存储
-watch(allDiaries, () => {
-  saveDiariesToStorage()
-}, { deep: true })
 
 function handleEdit(entry, index) {
   editContent.value = {
@@ -353,11 +306,7 @@ async function confirmDelete(entry, index) {
 }
 async function deleteDiary(id) {
   try {
-    const response = await fetch(`${API_BASE_URL}/diaries/${id}`, {
-      method: 'DELETE',
-    })
-    if (!response.ok) throw new Error('删除失败')
-    return true
+    return await apiService.deleteDiary(id);
   } catch (error) {
     ElMessage.error('删除失败')
     return false

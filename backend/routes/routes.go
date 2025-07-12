@@ -23,10 +23,18 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 
 	// 创建控制器
 	diaryController := controllers.NewDiaryController(db)
+	configController := controllers.NewConfigController(db)
 
 	// API路由组
 	api := r.Group("/api")
 	{
+		// 健康检查
+		api.GET("/health", configController.HealthCheck)
+
+		// 配置相关路由
+		api.GET("/config", configController.GetConfig)   // 获取配置
+		api.POST("/config", configController.SaveConfig) // 保存配置
+
 		// 日记相关路由
 		diaries := api.Group("/diaries")
 		{
